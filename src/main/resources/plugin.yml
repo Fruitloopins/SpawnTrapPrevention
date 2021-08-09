@@ -1,0 +1,7 @@
+main: net.earthmc.spawntrapprevention.SpawnTrapPrevention
+api-version: 1.16
+author: Warriorrr
+name: SpawnTrapPrevention
+prefix: SpawnTrapPrevention
+version: ${project.version}
+depend: [Towny]
