@@ -1,6 +1,7 @@
 package net.earthmc.spawntrapprevention;
 
-import com.palmergames.bukkit.towny.event.damage.TownBlockPVPTestEvent;
+import com.palmergames.bukkit.towny.TownyAPI;
+import com.palmergames.bukkit.towny.event.damage.TownyPlayerDamagePlayerEvent;
 import com.palmergames.bukkit.towny.exceptions.TownyException;
 import com.palmergames.bukkit.towny.object.Town;
 import com.palmergames.bukkit.towny.object.WorldCoord;
@@ -23,13 +24,16 @@ public class SpawnTrapPrevention extends JavaPlugin implements Listener {
     }
 
     @EventHandler(ignoreCancelled = true, priority = EventPriority.NORMAL)
-    public void onTownBlockTestPVP(TownBlockPVPTestEvent event) {
-        if (isCloseToNationSpawn(event.getTownBlock().getWorldCoord()))
-            event.setPvp(false);
+    public void onPlayerDamagePlayer(TownyPlayerDamagePlayerEvent event) {
+        if (!event.isInWilderness() && isCloseToNationSpawn(event.getLocation()))
+            event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.NORMAL)
     public void onPlayerDeath(PlayerDeathEvent event) {
+        if (TownyAPI.getInstance().isWilderness(event.getEntity().getLocation()))
+            return;
+
         if (isCloseToNationSpawn(event.getEntity().getLocation())) {
             event.setKeepInventory(true);
             event.setKeepLevel(true);
