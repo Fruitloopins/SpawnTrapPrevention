@@ -5,3 +5,4 @@ name: SpawnTrapPrevention
 prefix: SpawnTrapPrevention
 version: ${project.version}
 depend: [Towny]
+folia-supported: true
