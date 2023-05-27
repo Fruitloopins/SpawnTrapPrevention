@@ -2,10 +2,12 @@ package net.earthmc.spawntrapprevention;
 
 import com.palmergames.bukkit.towny.TownyAPI;
 import com.palmergames.bukkit.towny.event.damage.TownyPlayerDamagePlayerEvent;
+import com.palmergames.bukkit.towny.event.plot.toggle.PlotTogglePvpEvent;
 import com.palmergames.bukkit.towny.object.Nation;
 import com.palmergames.bukkit.towny.object.Resident;
 import com.palmergames.bukkit.towny.object.Town;
 import com.palmergames.bukkit.towny.object.TownBlock;
+import com.palmergames.bukkit.towny.object.TownBlockType;
 import com.palmergames.bukkit.towny.object.WorldCoord;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -31,8 +33,28 @@ public class SpawnTrapPrevention extends JavaPlugin implements Listener {
     public void onPlayerDamagePlayer(TownyPlayerDamagePlayerEvent event) {
         TownBlock townBlock = event.getTownBlock();
 
-        if (townBlock != null && isCloseToTownySpawn(event.getVictimResident(), townBlock.getWorldCoord()))
+        if (townBlock != null && isCloseToTownySpawn(event.getVictimResident(), townBlock.getWorldCoord())) {
+            // Disables the townblock's pvp status and changes the type back to defualt if needed.
+            // This prevents players from bypassing CombatLogX's system where it doesn't allow them to enter pvp disabled chunks while in combat.
+            if (townBlock.getPermissions().pvp) {
+                if (townBlock.getType() == TownBlockType.ARENA)
+                    townBlock.setType(TownBlockType.RESIDENTIAL);
+
+                townBlock.getPermissions().pvp = false;
+                townBlock.save();
+            }
+
             event.setCancelled(true);
+        }
+    }
+
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.NORMAL)
+    public void onTownBlockTogglePVP(PlotTogglePvpEvent event) {
+        if (!event.getFutureState() || !isCloseToTownySpawn(TownyAPI.getInstance().getResident(event.getPlayer()), event.getTownBlock().getWorldCoord()))
+            return;
+
+        event.setCancelMessage("You cannot toggle PVP in this plot due to its proximity to a town or nation's spawn point");
+        event.setCancelled(true);
     }
 
     @EventHandler(priority = EventPriority.LOW)
