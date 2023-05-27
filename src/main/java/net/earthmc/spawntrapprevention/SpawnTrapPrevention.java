@@ -1,14 +1,14 @@
 package net.earthmc.spawntrapprevention;
 
+import com.google.common.base.Suppliers;
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.palmergames.bukkit.towny.TownyAPI;
 import com.palmergames.bukkit.towny.event.damage.TownyPlayerDamagePlayerEvent;
+import com.palmergames.bukkit.towny.event.nation.NationSetSpawnEvent;
 import com.palmergames.bukkit.towny.event.plot.toggle.PlotTogglePvpEvent;
-import com.palmergames.bukkit.towny.object.Nation;
-import com.palmergames.bukkit.towny.object.Resident;
-import com.palmergames.bukkit.towny.object.Town;
-import com.palmergames.bukkit.towny.object.TownBlock;
-import com.palmergames.bukkit.towny.object.TownBlockType;
-import com.palmergames.bukkit.towny.object.WorldCoord;
+import com.palmergames.bukkit.towny.event.town.TownSetSpawnEvent;
+import com.palmergames.bukkit.towny.object.*;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.event.EventHandler;
@@ -21,8 +21,11 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.HashSet;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.function.Supplier;
 
 public class SpawnTrapPrevention extends JavaPlugin implements Listener {
+    private final Cache<WorldCoord, SpawnType> movedSpawnPoints = CacheBuilder.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).build();
 
     @Override
     public void onEnable() {
@@ -57,12 +60,35 @@ public class SpawnTrapPrevention extends JavaPlugin implements Listener {
         event.setCancelled(true);
     }
 
-    @EventHandler(priority = EventPriority.LOW)
-    public void onPlayerDeath(PlayerDeathEvent event) {
-        if (TownyAPI.getInstance().isWilderness(event.getEntity().getLocation()))
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.NORMAL)
+    public void onNationChangeSpawnPoint(NationSetSpawnEvent event) {
+        if (event.getOldSpawn() == null)
             return;
 
-        if (isCloseToTownySpawn(TownyAPI.getInstance().getResident(event.getEntity()), WorldCoord.parseWorldCoord(event.getEntity().getLocation()))) {
+        movedSpawnPoints.put(WorldCoord.parseWorldCoord(event.getOldSpawn()), SpawnType.NATION);
+    }
+
+    @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
+    public void onTownChangeSpawnPoint(TownSetSpawnEvent event) {
+        if (event.getOldSpawn() == null)
+            return;
+
+        movedSpawnPoints.asMap().compute(WorldCoord.parseWorldCoord(event.getOldSpawn()), (k, v) -> {
+            // Re-insert nation spawntype if it's already set to that since it takes priority.
+            if (v == SpawnType.NATION)
+                return v;
+
+            return SpawnType.TOWN;
+        });
+    }
+
+    @EventHandler(priority = EventPriority.LOW)
+    public void onPlayerDeath(PlayerDeathEvent event) {
+        final WorldCoord coord = WorldCoord.parseWorldCoord(event.getEntity().getLocation());
+        if (TownyAPI.getInstance().isWilderness(coord))
+            return;
+
+        if (isCloseToTownySpawn(TownyAPI.getInstance().getResident(event.getEntity()), coord)) {
             event.setKeepInventory(true);
             event.setKeepLevel(true);
             event.getDrops().clear();
@@ -78,11 +104,16 @@ public class SpawnTrapPrevention extends JavaPlugin implements Listener {
             if (town == null)
                 continue;
 
+            final Supplier<SpawnType> type = Suppliers.memoize(() -> movedSpawnPoints.asMap().get(coord));
+
             if (town.equals(residentTown)) {
                 Location spawnLocation = town.getSpawnOrNull();
-                if (spawnLocation != null && WorldCoord.parseWorldCoord(spawnLocation).equals(coord))
+                if ((spawnLocation != null && WorldCoord.parseWorldCoord(spawnLocation).equals(coord)) || type.get() == SpawnType.TOWN)
                     return true;
             }
+
+            if (type.get() == SpawnType.NATION)
+                return true;
 
             final Nation nation = town.getNationOrNull();
             if (nation != null && nation.isCapital(town)) {
