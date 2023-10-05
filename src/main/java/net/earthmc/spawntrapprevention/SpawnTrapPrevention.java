@@ -8,6 +8,7 @@ import com.palmergames.bukkit.towny.event.damage.TownyPlayerDamagePlayerEvent;
 import com.palmergames.bukkit.towny.event.nation.NationSetSpawnEvent;
 import com.palmergames.bukkit.towny.event.plot.toggle.PlotTogglePvpEvent;
 import com.palmergames.bukkit.towny.event.town.TownSetSpawnEvent;
+import com.palmergames.bukkit.towny.event.town.toggle.TownTogglePublicEvent;
 import com.palmergames.bukkit.towny.object.*;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
@@ -25,7 +26,7 @@ import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 public class SpawnTrapPrevention extends JavaPlugin implements Listener {
-    private final Cache<WorldCoord, SpawnType> movedSpawnPoints = CacheBuilder.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).build();
+    private final Cache<WorldCoord, SpawnType> alteredSpawnPoints = CacheBuilder.newBuilder().expireAfterWrite(5, TimeUnit.MINUTES).build();
 
     @Override
     public void onEnable() {
@@ -65,7 +66,7 @@ public class SpawnTrapPrevention extends JavaPlugin implements Listener {
         if (event.getOldSpawn() == null)
             return;
 
-        movedSpawnPoints.put(WorldCoord.parseWorldCoord(event.getOldSpawn()), SpawnType.NATION);
+        alteredSpawnPoints.put(WorldCoord.parseWorldCoord(event.getOldSpawn()), SpawnType.NATION);
     }
 
     @EventHandler(ignoreCancelled = true, priority = EventPriority.MONITOR)
@@ -73,13 +74,24 @@ public class SpawnTrapPrevention extends JavaPlugin implements Listener {
         if (event.getOldSpawn() == null)
             return;
 
-        movedSpawnPoints.asMap().compute(WorldCoord.parseWorldCoord(event.getOldSpawn()), (k, v) -> {
+        alteredSpawnPoints.asMap().compute(WorldCoord.parseWorldCoord(event.getOldSpawn()), (k, v) -> {
             // Re-insert nation spawntype if it's already set to that since it takes priority.
             if (v == SpawnType.NATION)
                 return v;
 
             return SpawnType.TOWN;
         });
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onTownTogglePublic(TownTogglePublicEvent event) {
+        if (!event.getFutureState()) {
+            Location spawn = event.getTown().getSpawnOrNull();
+            if (spawn == null)
+                return;
+
+            alteredSpawnPoints.put(WorldCoord.parseWorldCoord(spawn), SpawnType.TOWN);
+        }
     }
 
     @EventHandler(priority = EventPriority.LOW)
@@ -104,9 +116,9 @@ public class SpawnTrapPrevention extends JavaPlugin implements Listener {
             if (town == null)
                 continue;
 
-            final Supplier<SpawnType> type = Suppliers.memoize(() -> movedSpawnPoints.asMap().get(coord));
+            final Supplier<SpawnType> type = Suppliers.memoize(() -> alteredSpawnPoints.asMap().get(coord));
 
-            if (town.equals(residentTown)) {
+            if (town.equals(residentTown) || town.isPublic() || type.get() == SpawnType.TOWN) {
                 Location spawnLocation = town.getSpawnOrNull();
                 if ((spawnLocation != null && WorldCoord.parseWorldCoord(spawnLocation).equals(coord)) || type.get() == SpawnType.TOWN)
                     return true;
